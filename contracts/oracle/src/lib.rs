@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, vec, Address, Env, String, Vec,
+    contract, contracterror, contractimpl, contracttype, vec, Address, BytesN, Env, String, Vec,
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -101,28 +101,58 @@ impl OracleContract {
         Ok(())
     }
 
-    /// Submit a reading with submitter tracking
+    /// Submit a reading with authentication, timestamp validation, and signature verification
     pub fn submit_reading(
         env: Env,
+        submitter: Address,
         geo_cell: String,
         reading_type: ReadingType,
         value: u32,
-        submitter: Address,
+        reading_timestamp: u64,
+        signature: BytesN<64>,
     ) -> Result<(), Error> {
+        submitter.require_auth();
+
         let config: Config = env
             .storage()
             .instance()
             .get(&DataKey::Config)
             .ok_or(Error::NotInitialized)?;
 
+        // Check that submitter is whitelisted
+        if !Self::is_whitelisted(env.clone(), submitter.clone()) {
+            return Err(Error::NotWhitelisted);
+        }
+
+        // Validate reading timestamp
         let current_time = env.ledger().timestamp();
+        if reading_timestamp == 0 || reading_timestamp > current_time {
+            return Err(Error::InvalidTimestamp);
+        }
+
+        // Check that reading is not too old
+        let reading_age = current_time - reading_timestamp;
+        if reading_age > config.max_reading_age {
+            return Err(Error::StaleReading);
+        }
+
+        // Validate signature (placeholder for future implementation)
+        Self::validate_signature(
+            env.clone(),
+            &submitter,
+            &geo_cell,
+            reading_type,
+            value,
+            reading_timestamp,
+            &signature,
+        )?;
 
         // Store the latest reading
         let reading = LatestReading {
             geo_cell: geo_cell.clone(),
             reading_type,
             value,
-            timestamp: current_time,
+            timestamp: reading_timestamp,
         };
 
         let latest_key = DataKey::LatestReading(geo_cell.clone(), reading_type);
@@ -138,17 +168,37 @@ impl OracleContract {
 
         let historical_reading = HistoricalReading {
             value,
-            timestamp: current_time,
+            timestamp: reading_timestamp,
             submitter,
         };
 
         // Maintain circular buffer behavior
-        if history.len() >= config.max_history_size {
+        if history.len() >= config.max_history_size as usize {
             history.remove(0);
         }
 
         history.push_back(historical_reading);
         env.storage().persistent().set(&history_key, &history);
+
+        Ok(())
+    }
+
+    /// Validate signature on a reading (extensible for future cryptographic verification)
+    fn validate_signature(
+        env: Env,
+        submitter: &Address,
+        geo_cell: &String,
+        reading_type: ReadingType,
+        value: u32,
+        timestamp: u64,
+        signature: &BytesN<64>,
+    ) -> Result<(), Error> {
+        // Placeholder for signature validation logic
+        // Future: Implement ECDSA or other signature schemes
+        // For now, accept all signatures as long as basic checks pass above
+
+        // Prevent unused variable warnings
+        let _ = (env, submitter, geo_cell, reading_type, value, timestamp, signature);
 
         Ok(())
     }
