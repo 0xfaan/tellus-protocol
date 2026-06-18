@@ -107,11 +107,11 @@ pub enum Error {
     NotInitialized = 2,
     NoReadingsAvailable = 3,
     InvalidHistorySize = 4,
-    NotAuthorized = 5,           // Caller not authorized (not admin)
-    NotWhitelisted = 6,          // Submitter not whitelisted
-    StaleReading = 7,            // Reading timestamp is too old
-    InvalidTimestamp = 8,        // Timestamp is invalid (future or zero)
-    NoAggregatedReading = 9,     // No aggregated reading available
+    NotAuthorized = 5,       // Caller not authorized (not admin)
+    NotWhitelisted = 6,      // Submitter not whitelisted
+    StaleReading = 7,        // Reading timestamp is too old
+    InvalidTimestamp = 8,    // Timestamp is invalid (future or zero)
+    NoAggregatedReading = 9, // No aggregated reading available
 }
 
 #[contract]
@@ -202,7 +202,7 @@ impl OracleContract {
         };
 
         // Maintain circular buffer behavior
-        if history.len() >= config.max_history_size as usize {
+        if history.len() >= config.max_history_size {
             history.remove(0);
         }
 
@@ -235,12 +235,6 @@ impl OracleContract {
         reading_type: ReadingType,
         max_reading_age: u64,
     ) -> Result<(), Error> {
-        let config: Config = env
-            .storage()
-            .instance()
-            .get(&DataKey::Config)
-            .ok_or(Error::NotInitialized)?;
-
         // Get the history of readings
         let history_key = DataKey::ReadingHistory(geo_cell.clone(), reading_type);
         let history: Vec<HistoricalReading> = env
@@ -269,10 +263,10 @@ impl OracleContract {
         }
 
         // Store sample count before passing vector to calculate_median
-        let sample_count = valid_readings.len() as u32;
+        let sample_count = valid_readings.len();
 
         // Calculate median
-        let median = Self::calculate_median(env, valid_readings)?;
+        let median = Self::calculate_median(&env, valid_readings)?;
 
         // Store aggregated reading
         let aggregated = AggregatedReading {
@@ -303,7 +297,7 @@ impl OracleContract {
     }
 
     /// Calculate median of a set of values
-    fn calculate_median(env: Env, mut values: Vec<u32>) -> Result<u32, Error> {
+    fn calculate_median(_env: &Env, mut values: Vec<u32>) -> Result<u32, Error> {
         if values.is_empty() {
             return Err(Error::NoReadingsAvailable);
         }
@@ -411,7 +405,7 @@ impl OracleContract {
             values.push_back(reading.value);
         }
 
-        Self::calculate_median(env, values)
+        Self::calculate_median(&env, values)
     }
 
     /// Get the count of readings in history
@@ -425,11 +419,7 @@ impl OracleContract {
     }
 
     /// Add an oracle node to the whitelist (admin only)
-    pub fn add_oracle_node(
-        env: Env,
-        admin: Address,
-        oracle_address: Address,
-    ) -> Result<(), Error> {
+    pub fn add_oracle_node(env: Env, admin: Address, oracle_address: Address) -> Result<(), Error> {
         admin.require_auth();
 
         let config: Config = env
