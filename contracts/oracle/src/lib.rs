@@ -214,21 +214,17 @@ impl OracleContract {
 
     /// Validate signature on a reading (extensible for future cryptographic verification)
     fn validate_signature(
-        env: Env,
-        submitter: &Address,
-        geo_cell: &String,
-        reading_type: ReadingType,
-        value: u32,
-        timestamp: u64,
-        signature: &BytesN<64>,
+        _env: Env,
+        _submitter: &Address,
+        _geo_cell: &String,
+        _reading_type: ReadingType,
+        _value: u32,
+        _timestamp: u64,
+        _signature: &BytesN<64>,
     ) -> Result<(), Error> {
         // Placeholder for signature validation logic
         // Future: Implement ECDSA or other signature schemes
         // For now, accept all signatures as long as basic checks pass above
-
-        // Prevent unused variable warnings
-        let _ = (env, submitter, geo_cell, reading_type, value, timestamp, signature);
-
         Ok(())
     }
 
@@ -272,9 +268,11 @@ impl OracleContract {
             return Err(Error::NoReadingsAvailable);
         }
 
-        // Calculate median
-        let median = Self::calculate_median(env.clone(), valid_readings.clone())?;
+        // Store sample count before passing vector to calculate_median
         let sample_count = valid_readings.len() as u32;
+
+        // Calculate median
+        let median = Self::calculate_median(env, valid_readings)?;
 
         // Store aggregated reading
         let aggregated = AggregatedReading {
@@ -354,7 +352,11 @@ impl OracleContract {
 
     /// Internal helper to validate timestamp
     /// Checks timestamp is valid (not zero, not future) and not stale
-    fn validate_timestamp(current_time: u64, reading_timestamp: u64, max_age: u64) -> Result<(), Error> {
+    fn validate_timestamp(
+        current_time: u64,
+        reading_timestamp: u64,
+        max_age: u64,
+    ) -> Result<(), Error> {
         // Reject zero or future timestamps
         if reading_timestamp == 0 || reading_timestamp > current_time {
             return Err(Error::InvalidTimestamp);
