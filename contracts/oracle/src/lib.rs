@@ -1,4 +1,46 @@
 #![no_std]
+//! Oracle Contract for Tellus Protocol
+//!
+//! This contract manages weather and crop-health readings with the following features:
+//! - **Whitelist-based access control**: Only authorized oracle nodes can submit readings
+//! - **Timestamp validation**: Ensures readings are fresh and have valid timestamps
+//! - **Reading history**: Maintains a circular buffer of recent readings with submitter info
+//! - **Aggregation**: Computes median values from multiple readings for resistance to manipulation
+//! - **Authentication**: Requires submitter authorization via Soroban's require_auth()
+//!
+//! # Overview
+//!
+//! The oracle contract operates in three main phases:
+//! 1. **Setup**: Admin initializes contract with max_reading_age (time window for fresh data)
+//! 2. **Management**: Admin whitelists oracle nodes that are authorized to submit
+//! 3. **Operations**: Whitelisted oracles submit readings; consumers query aggregated data
+//!
+//! # Security Model
+//!
+//! - Only whitelisted addresses can submit readings
+//! - Readings must not be older than max_reading_age (e.g., 48 hours)
+//! - Readings with future timestamps are rejected
+//! - Admin authorization is required for whitelist changes
+//! - Submitter authorization is enforced on each reading submission
+//!
+//! # Usage Pattern
+//!
+//! ```ignore
+//! // 1. Initialize
+//! initialize(admin, 172800)  // 48-hour freshness window
+//!
+//! // 2. Whitelist oracles
+//! add_oracle_node(admin, oracle1)
+//! add_oracle_node(admin, oracle2)
+//!
+//! // 3. Oracles submit readings
+//! submit_reading(oracle1, "9q5ct", Rainfall, 250, 1000000, sig)
+//! submit_reading(oracle2, "9q5ct", Rainfall, 280, 1000005, sig)
+//!
+//! // 4. Aggregate and retrieve
+//! aggregate_readings("9q5ct", Rainfall, 10000)  // Last 10000 seconds
+//! get_aggregated("9q5ct", Rainfall)  // Returns median: 265
+//! ```
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, vec, Address, BytesN, Env, String, Vec,
@@ -113,28 +155,15 @@ impl OracleContract {
     ) -> Result<(), Error> {
         submitter.require_auth();
 
-        let config: Config = env
-            .storage()
-            .instance()
-            .get(&DataKey::Config)
-            .ok_or(Error::NotInitialized)?;
+        // Retrieve and validate contract configuration
+        let config: Config = Self::get_config(env.clone())?;
 
-        // Check that submitter is whitelisted
-        if !Self::is_whitelisted(env.clone(), submitter.clone()) {
-            return Err(Error::NotWhitelisted);
-        }
+        // Validate submitter is whitelisted
+        Self::validate_submitter(env.clone(), submitter.clone())?;
 
         // Validate reading timestamp
         let current_time = env.ledger().timestamp();
-        if reading_timestamp == 0 || reading_timestamp > current_time {
-            return Err(Error::InvalidTimestamp);
-        }
-
-        // Check that reading is not too old
-        let reading_age = current_time - reading_timestamp;
-        if reading_age > config.max_reading_age {
-            return Err(Error::StaleReading);
-        }
+        Self::validate_timestamp(current_time, reading_timestamp, config.max_reading_age)?;
 
         // Validate signature (placeholder for future implementation)
         Self::validate_signature(
@@ -303,6 +332,41 @@ impl OracleContract {
         };
 
         Ok(median)
+    }
+
+    /// Internal helper to get the contract configuration
+    /// Returns NotInitialized if contract has not been initialized
+    fn get_config(env: Env) -> Result<Config, Error> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Config)
+            .ok_or(Error::NotInitialized)
+    }
+
+    /// Internal helper to validate submitter authorization
+    /// Checks if submitter is whitelisted; returns NotWhitelisted if not
+    fn validate_submitter(env: Env, submitter: Address) -> Result<(), Error> {
+        if !Self::is_whitelisted(env, submitter) {
+            return Err(Error::NotWhitelisted);
+        }
+        Ok(())
+    }
+
+    /// Internal helper to validate timestamp
+    /// Checks timestamp is valid (not zero, not future) and not stale
+    fn validate_timestamp(current_time: u64, reading_timestamp: u64, max_age: u64) -> Result<(), Error> {
+        // Reject zero or future timestamps
+        if reading_timestamp == 0 || reading_timestamp > current_time {
+            return Err(Error::InvalidTimestamp);
+        }
+
+        // Check reading is not older than max_age
+        let reading_age = current_time - reading_timestamp;
+        if reading_age > max_age {
+            return Err(Error::StaleReading);
+        }
+
+        Ok(())
     }
 
     /// Get latest reading for a geo cell and reading type
