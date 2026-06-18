@@ -1,6 +1,8 @@
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, vec, Address, Env, String, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, vec, Address, Env, String, Vec,
+};
 
 #[derive(Clone, Copy, PartialEq)]
 #[contracttype]
@@ -32,7 +34,7 @@ pub enum DataKey {
     Config,
     LatestReading(String, ReadingType), // geo_cell, type -> latest value
     ReadingHistory(String, ReadingType), // geo_cell, type -> vector of historical readings
-    HistoryIndex(String, ReadingType), // geo_cell, type -> next index for circular buffer
+    HistoryIndex(String, ReadingType),  // geo_cell, type -> next index for circular buffer
 }
 
 #[derive(Clone)]
@@ -155,11 +157,7 @@ impl OracleContract {
     }
 
     /// Get the median of recent readings
-    pub fn get_median(
-        env: Env,
-        geo_cell: String,
-        reading_type: ReadingType,
-    ) -> Result<u32, Error> {
+    pub fn get_median(env: Env, geo_cell: String, reading_type: ReadingType) -> Result<u32, Error> {
         let history = Self::get_history(env.clone(), geo_cell.clone(), reading_type)?;
 
         if history.is_empty() {
@@ -203,6 +201,6 @@ impl OracleContract {
         reading_type: ReadingType,
     ) -> Result<u32, Error> {
         let history = Self::get_history(env, geo_cell, reading_type)?;
-        Ok(history.len() as u32)
+        Ok(history.len())
     }
 }
