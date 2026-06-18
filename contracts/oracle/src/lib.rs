@@ -29,12 +29,24 @@ pub struct HistoricalReading {
     pub submitter: Address,
 }
 
+#[derive(Clone)]
+#[contracttype]
+pub struct AggregatedReading {
+    pub geo_cell: String,
+    pub reading_type: ReadingType,
+    pub value: u32,
+    pub timestamp: u64,
+    pub sample_count: u32,
+}
+
 #[contracttype]
 pub enum DataKey {
     Config,
     LatestReading(String, ReadingType), // geo_cell, type -> latest value
     ReadingHistory(String, ReadingType), // geo_cell, type -> vector of historical readings
     HistoryIndex(String, ReadingType),  // geo_cell, type -> next index for circular buffer
+    Whitelist(Address),                 // oracle_address -> bool (whitelisted)
+    AggregatedReading(String, ReadingType), // geo_cell, type -> aggregated value
 }
 
 #[derive(Clone)]
@@ -42,6 +54,7 @@ pub enum DataKey {
 pub struct Config {
     pub admin: Address,
     pub max_history_size: u32,
+    pub max_reading_age: u64, // Maximum age of readings in seconds
 }
 
 #[contracterror]
@@ -52,6 +65,11 @@ pub enum Error {
     NotInitialized = 2,
     NoReadingsAvailable = 3,
     InvalidHistorySize = 4,
+    NotAuthorized = 5,           // Caller not authorized (not admin)
+    NotWhitelisted = 6,          // Submitter not whitelisted
+    StaleReading = 7,            // Reading timestamp is too old
+    InvalidTimestamp = 8,        // Timestamp is invalid (future or zero)
+    NoAggregatedReading = 9,     // No aggregated reading available
 }
 
 #[contract]
@@ -59,21 +77,26 @@ pub struct OracleContract;
 
 #[contractimpl]
 impl OracleContract {
-    /// Initialize the oracle contract with configurable history size
-    pub fn initialize(env: Env, admin: Address, max_history_size: u32) -> Result<(), Error> {
+    /// Initialize the oracle contract with configurable history size and reading age
+    pub fn initialize(env: Env, admin: Address, max_reading_age: u64) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Config) {
             return Err(Error::AlreadyInitialized);
         }
 
-        if max_history_size == 0 {
+        if max_reading_age == 0 {
             return Err(Error::InvalidHistorySize);
         }
 
         let config = Config {
-            admin,
-            max_history_size,
+            admin: admin.clone(),
+            max_history_size: 100, // Default history size
+            max_reading_age,
         };
         env.storage().instance().set(&DataKey::Config, &config);
+
+        // Whitelist the admin by default
+        let whitelist_key = DataKey::Whitelist(admin);
+        env.storage().persistent().set(&whitelist_key, &true);
 
         Ok(())
     }
